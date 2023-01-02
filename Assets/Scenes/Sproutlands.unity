@@ -8916,8 +8916,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: e9b649083877d21409318382702b70b8, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  numberOfRows: 2
-  numberOfColumns: 2
+  numberOfRows: 6
+  numberOfColumns: 3
 --- !u!65 &1766341528
 BoxCollider:
   m_ObjectHideFlags: 0

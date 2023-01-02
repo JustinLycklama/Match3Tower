@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Unity.VisualScripting;
 using UnityEngine;
+using UnityEngine.InputSystem;
 
 public class Match3View : MonoBehaviour
 {
@@ -63,13 +64,48 @@ public class Match3View : MonoBehaviour
 
         model.subscribe((dataMap) =>
         {
+            print("Display New Datamap");
+
+            int numAnimations = dataMap.Keys.Count;
+            print($"SET numAnimations {numAnimations}");
+
             foreach (Item key in dataMap.Keys)
             {
                 Coordinate coordinate = dataMap[key];
-                setPosition(key, coordinate.x, coordinate.y);
+                setPosition(key, coordinate.x, coordinate.y, () =>
+                {
+                    print($"numAnimations {numAnimations}");
+                    numAnimations -= 1;
+                    if (numAnimations <= 0) {
+                        model.dataUpdated = true;
+                    }
+                });
             }
+
+            List<Item> itemsInGrid = gameObjectMap.Keys.ToList();
+            var itemsLeftInGrid = itemsInGrid.Where(item => !dataMap.Keys.Contains(item));
+
+            foreach (var item in itemsLeftInGrid)
+            {                
+                delete(item, () =>
+                {
+                    //numAnimations -= 1;
+                });
+            }
+
         });
     }
+
+    //public int numAnimations = 100;
+    //IEnumerator checkAnimationsCompleted()
+    //{
+    //    yield return new WaitUntil(() => { return numAnimations == 0; });
+    //    //numAnimations = 50;
+    //    print($"IENUM numAnimations {numAnimations}");
+
+
+    //    //model.dataUpdated = true;
+    //}
 
     // Update is called once per frame
     void Update()
@@ -146,7 +182,7 @@ public class Match3View : MonoBehaviour
 
     }
 
-    private void setPosition(Item item, int row, int col)
+    private void setPosition(Item item, int row, int col, Action onComplete)
     {
 
         if (!gameObjectMap.ContainsKey(item))
@@ -161,9 +197,17 @@ public class Match3View : MonoBehaviour
         GameObject obj = gameObjectMap[item];
         //obj.transform.position = transform.position + gridSizeInfo.getLocalPosition(row, col);
 
-        Tween t = obj.transform.DOMove(transform.position + gridSizeInfo.getLocalPosition(row, col), 1f);
-            
-           
+        Vector3 destination = transform.position + gridSizeInfo.getLocalPosition(row, col);
+
+
+        var distance = Vector3.Distance(obj.transform.position, destination); // or whatever distance you calculate.
+        var desiredSpeed = 5; // that's in pixels per second, more or less.
+        var time = distance / desiredSpeed; // this number is the number of seconds.
+
+
+        Tween t = obj.transform.DOMove(destination, time);
+        //t.onComplete(() => onComplete.Invoke());
+
 
         //// Don't bother saving the new state if it is transitioning off screen
         //if (toIndex >= 0 && toIndex < columns)
@@ -171,15 +215,39 @@ public class Match3View : MonoBehaviour
         //    nextTransitionCells[toIndex] = cellAtPos;
         //}
 
-        //t.OnComplete(() => {
-        //    // If the cell is offscreen, prepare for reuse
-        //    if (toIndex < 0 || toIndex >= columns)
-        //    {
-        //        EnqueueCell(cellAtPos);
-        //    }
+        t.OnComplete(() =>
+        {
+            onComplete();
+        });
 
-        //    callback();
-        //});
+    }
+
+    private void delete(Item item, Action onComplete)
+    {
+        if (!gameObjectMap.ContainsKey(item))
+        {
+            return;
+        }
+
+        GameObject obj = gameObjectMap[item];
+
+
+        Tween t = obj.transform.DOScale(Vector3.zero, 0.5f);
+        //t.onComplete(() => onComplete.Invoke());
+
+
+        //// Don't bother saving the new state if it is transitioning off screen
+        //if (toIndex >= 0 && toIndex < columns)
+        //{
+        //    nextTransitionCells[toIndex] = cellAtPos;
+        //}
+
+        t.OnComplete(() =>
+        {
+            gameObjectMap.Remove(item);
+            Destroy(obj);
+            onComplete();
+        });
 
     }
 

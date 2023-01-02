@@ -6,13 +6,23 @@ using UnityEngine;
 
 public struct Item : IEquatable<Item>, IComparable<Item>
 {
-    public int id { get; private set; }
+    public enum Type { 
+        one,
+        two
+    }
+
+
+    public string id { get; private set; }
     public string title { get; private set; }
 
-    public Item(int identifier)
+    public Type type;
+
+    public Item(Type type)
     {
-        id = identifier;
-        title = id.ToString();
+        id = Guid.NewGuid().ToString();
+        title = id;
+
+        this.type = type;
     }
 
     public bool Equals(Item other)
@@ -53,15 +63,16 @@ public class Match3Model : MonoBehaviour
     // Start is called before the first frame update
     void Start()
     {
-        data = new Item?[numberOfColumns, numberOfRows];
+        Item?[,] data = new Item?[numberOfColumns, numberOfRows];
 
-        data[0, 0] = new Item(1);
+        data[0, 5] = new Item(Item.Type.one);
+        data[1, 4] = new Item(Item.Type.one);
+        data[1, 5] = new Item(Item.Type.one);
+        data[2, 3] = new Item(Item.Type.one);
 
-        data[1, 1] = new Item(2);
-
-        //for (int col = 0; col < numberOfColumns; col++) {
-        //    data[col] = new Item[numberOfRows];
-        //}
+        setData(data);
+        gravityAction();
+        StartCoroutine(WaitForChange());
     }
 
     // Update is called once per frame
@@ -70,39 +81,132 @@ public class Match3Model : MonoBehaviour
         //dataChangeDelegate.Invoke(data);
     }
 
-    void setData()
+    Dictionary<Item, Coordinate> dataMap = new Dictionary<Item, Coordinate>();
+
+
+    void setData(Item?[,] data)
     {
-        if (dataChangeDelegate == null) {
-            return;
-        }
+        this.data = data;
+        rebuildDataMap();
+    }
 
-        Dictionary<Item, Coordinate> dataMap = new Dictionary<Item, Coordinate>();
+    void rebuildDataMap()
+    {
+        dataMap.Clear();
 
-        for (int x = 0; x < numberOfRows; x++)
+        for (int row = 0; row < numberOfRows; row++)
         {
-            for (int y = 0; y < numberOfColumns; y++)
+            for (int column = 0; column < numberOfColumns; column++)
             {
-                if (data[x, y] != null)
+                if (data[column, row] != null)
                 {
-                    dataMap[data[x, y].Value] = new Coordinate(x, y);
+                    dataMap[data[column, row].Value] = new Coordinate(column, row);
                 }
 
             }
         }
-        
+
+        if (dataChangeDelegate == null || data == null)
+        {
+            return;
+        }
+
         dataChangeDelegate.Invoke(dataMap);
     }
 
-    private void OnMouseDown()
+    private void gravityAction()
     {
-        data[0, 1] = data[1, 1];
-        data[1, 1] = null;
-        setData();
+        print("Gravity Action");
+        Item?[,] newData = new Item?[numberOfColumns, numberOfRows];
+
+        for (int column = 0; column < numberOfColumns; column++)
+        {
+            List<Item> items = new List<Item>();
+
+            for (int row = 0; row < numberOfRows; row++)
+            {
+                if (data[column, row] != null)
+                {
+                    items.Add(data[column, row].Value);
+                }
+            }
+
+            for (int row = 0; row < items.Count; row++)
+            {
+                print($"Gravity Action ROW {row}");
+                newData[column, row] = items[row];
+            }
+        }
+
+        setData(newData);
+    }
+
+    private void checkForMatches()
+    {
+        Item.Type? lastMatch = null;
+        List<Coordinate> matchingIndicies = new List<Coordinate>();
+
+        List<Coordinate> coordinatesToDelete = new List<Coordinate>();
+
+        Action clearMatches = () =>
+        {
+            if (matchingIndicies.Count > 2)
+            {
+                matchingIndicies.ForEach(x =>
+                {
+                    coordinatesToDelete.Add(x);
+                    print($"To Delete: {x}");
+                });
+            }
+
+            matchingIndicies.Clear();
+        };
+
+        for (int row = 0; row < numberOfRows; row++)
+        {
+            for (int column = 0; column < numberOfColumns; column++)
+            {
+                Item? cell = data[column, row];
+                if (cell == null)
+                {
+                    lastMatch = null;
+                    clearMatches();
+                    continue;
+                }
+
+                Item item = cell.Value;
+
+                if (lastMatch == null || lastMatch == item.type)
+                {
+                    matchingIndicies.Add(new Coordinate(column, row));
+                } else
+                {
+                    clearMatches();
+                }
+
+
+                lastMatch = item.type;
+            }
+        }
+
+        Item?[,] newData = data;
+        coordinatesToDelete.ForEach(coordinate => newData[coordinate.x, coordinate.y] = null);
+        setData(newData);
     }
 
     public void subscribe(OnDataChange f)
     {
         dataChangeDelegate += f;
-        setData();
+        f.Invoke(dataMap);
+    }
+
+    public bool dataUpdated = false;
+    IEnumerator WaitForChange()
+    {
+        yield return new WaitUntil(() => { return dataUpdated; });
+        dataUpdated = false;
+
+        checkForMatches();
+        StartCoroutine(WaitForChange());
     }
 }
