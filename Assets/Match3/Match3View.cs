@@ -10,6 +10,13 @@ using UnityEngine.InputSystem;
 public class Match3View : MonoBehaviour
 {
 
+    [Serializable]
+    public struct Template
+    {
+        public Item.Type type;
+        public SpriteRenderer obj;
+    }
+
     private struct GridSizeInfo
     {
         //public readonly float gridWidth;
@@ -45,66 +52,103 @@ public class Match3View : MonoBehaviour
 
     //public RectTransform rectTransform;
 
-    public SpriteRenderer template;
+    //public SpriteRenderer template;
+
+    public List<Template> templateList;
+
     //private ItemRow[] rowViewList;
 
     public Match3Model model;
 
     private void Awake()
     {
-        template.transform.SetParent(null);
-        template.gameObject.SetActive(false);
+        templateList.ForEach(template =>
+        {
+            template.obj.transform.SetParent(null);
+            template.obj.gameObject.SetActive(false);
+        });
     }
 
     void Start()
     {
-        //StartCoroutine(WaitForChange());
+        StartCoroutine(PerformActions());
+
 
         SetGridSize(model.numberOfRows, model.numberOfColumns);
 
-        model.subscribe((dataMap) =>
-        {
-            print("Display New Datamap");
-
-            int numAnimations = dataMap.Keys.Count;
-            print($"SET numAnimations {numAnimations}");
-
-            foreach (Item key in dataMap.Keys)
-            {
-                Coordinate coordinate = dataMap[key];
-                setPosition(key, coordinate.x, coordinate.y, () =>
-                {
-                    print($"numAnimations {numAnimations}");
-                    numAnimations -= 1;
-                    if (numAnimations <= 0) {
-                        model.dataUpdated = true;
-                    }
-                });
-            }
-
-            List<Item> itemsInGrid = gameObjectMap.Keys.ToList();
-            var itemsLeftInGrid = itemsInGrid.Where(item => !dataMap.Keys.Contains(item));
-
-            foreach (var item in itemsLeftInGrid)
-            {                
-                delete(item, () =>
-                {
-                    //numAnimations -= 1;
-                });
-            }
-
-        });
+        model.subscribe((dataMap) => queueDataMap(dataMap));
     }
 
-    //public int numAnimations = 100;
+    Queue<Dictionary<Item, Coordinate>> dataMapQ = new Queue<Dictionary<Item, Coordinate>>();
+
+    void queueDataMap(Dictionary<Item, Coordinate> dataMap)
+    {
+        dataMapQ.Enqueue(dataMap);
+    }
+
+    void displayDataMap(Dictionary<Item, Coordinate> dataMap)
+    {
+        print("Display New Datamap");
+
+        List<Item> itemsInGrid = gameObjectMap.Keys.ToList();
+        var itemsRemovedFromGrid = itemsInGrid.Where(item => !dataMap.Keys.Contains(item));
+
+        numAnimations = dataMap.Keys.Count + itemsRemovedFromGrid.Count();
+
+        foreach (Item key in dataMap.Keys)
+        {
+            Coordinate coordinate = dataMap[key];
+            setPosition(key, coordinate.x, coordinate.y, () =>
+            {
+                numAnimations -= 1;
+            });
+        }
+
+        foreach (var item in itemsRemovedFromGrid)
+        {
+            delete(item, () =>
+            {
+                numAnimations -= 1;
+            });
+        }
+    }
+
+    private int numAnimations = 0;
+    public float animationDelay = 0.75f;
+
+    IEnumerator PerformActions()
+    {
+        while (true)
+        {
+            if (dataMapQ.Count > 0)
+            {
+                displayDataMap(dataMapQ.Dequeue());
+                yield return new WaitUntil(() => { return numAnimations == 0; });
+                yield return new WaitForSeconds(animationDelay);
+
+                if (dataMapQ.Count == 0)
+                {
+                    model.performNextAction();
+                }
+            } else
+            {
+                yield return new WaitForSeconds(animationDelay);
+            }
+        }
+    }
+
+
     //IEnumerator checkAnimationsCompleted()
     //{
+
+    //    print($"ANIMATION HOLD BEGIN");
+
     //    yield return new WaitUntil(() => { return numAnimations == 0; });
-    //    //numAnimations = 50;
-    //    print($"IENUM numAnimations {numAnimations}");
+    //    yield return new WaitForSeconds(animationDelay);
 
+    //    print($"ANIMATION HOLD END");
 
-    //    //model.dataUpdated = true;
+    //    model.performNextAction();
     //}
 
     // Update is called once per frame
@@ -182,14 +226,20 @@ public class Match3View : MonoBehaviour
 
     }
 
-    private void setPosition(Item item, int row, int col, Action onComplete)
+    private void setPosition(Item item, int x, int y, Action onComplete)
     {
 
         if (!gameObjectMap.ContainsKey(item))
         {
+
+            SpriteRenderer template = templateList.Where(template => template.type == item.type).First().obj;
             SpriteRenderer newObject = Instantiate(template);
+
             newObject.transform.SetParent(transform);
             newObject.gameObject.SetActive(true);
+
+            // Set current position for new obj to be new position plus a full grid
+            newObject.transform.position = transform.position + gridSizeInfo.getLocalPosition(x, y) + new Vector3(0, cellHeight * model.numberOfRows, 0);
 
             gameObjectMap[item] = newObject.gameObject;
         }
@@ -197,7 +247,7 @@ public class Match3View : MonoBehaviour
         GameObject obj = gameObjectMap[item];
         //obj.transform.position = transform.position + gridSizeInfo.getLocalPosition(row, col);
 
-        Vector3 destination = transform.position + gridSizeInfo.getLocalPosition(row, col);
+        Vector3 destination = transform.position + gridSizeInfo.getLocalPosition(x, y);
 
 
         var distance = Vector3.Distance(obj.transform.position, destination); // or whatever distance you calculate.
@@ -206,20 +256,11 @@ public class Match3View : MonoBehaviour
 
 
         Tween t = obj.transform.DOMove(destination, time);
-        //t.onComplete(() => onComplete.Invoke());
-
-
-        //// Don't bother saving the new state if it is transitioning off screen
-        //if (toIndex >= 0 && toIndex < columns)
-        //{
-        //    nextTransitionCells[toIndex] = cellAtPos;
-        //}
 
         t.OnComplete(() =>
         {
             onComplete();
         });
-
     }
 
     private void delete(Item item, Action onComplete)
@@ -232,7 +273,7 @@ public class Match3View : MonoBehaviour
         GameObject obj = gameObjectMap[item];
 
 
-        Tween t = obj.transform.DOScale(Vector3.zero, 0.5f);
+        Tween t = obj.transform.DOScale(Vector3.zero, 1f);
         //t.onComplete(() => onComplete.Invoke());
 
 
